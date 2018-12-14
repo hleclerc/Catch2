@@ -1,6 +1,6 @@
 /*
  *  Catch v2.5.0
- *  Generated: 2018-11-26 20:46:12.165372
+ *  Generated: 2018-12-14 15:19:20.029228
  *  ----------------------------------------------------------
  *  This file has been merged from multiple headers. Please don't edit it directly
  *  Copyright (c) 2018 Two Blue Cubes Ltd. All rights reserved.
@@ -713,7 +713,80 @@ struct is_unique<T0, T1, Rest...> : std::integral_constant
 #define INTERNAL_CATCH_TEMPLATE_UNIQUE_NAME(Name, ...) INTERNAL_CATCH_TEMPLATE_UNIQUE_NAME1(Name, INTERNAL_CATCH_EXPAND_VARGS(INTERNAL_CATCH_REMOVE_PARENS(__VA_ARGS__)))
 #endif
 
+#define INTERNAL_CATCH_MAKE_TYPE_LIST(types) TypeList<INTERNAL_CATCH_REMOVE_PARENS(types)>
+
+#define INTERNAL_CATCH_MAKE_TYPE_LISTS_FROM_TYPES(types)\
+    CATCH_REC_LIST(INTERNAL_CATCH_MAKE_TYPE_LIST,INTERNAL_CATCH_REMOVE_PARENS(types))
+
 // end catch_preprocessor.hpp
+// start catch_meta.hpp
+
+
+template< typename... >
+struct TypeList{};
+
+template< typename... >
+struct append;
+
+template< template<typename...> class L1
+	, typename...E1
+	, template<typename...> class L2
+	, typename...E2
+	>
+struct append< L1<E1...>, L2<E2...> >
+{
+	using type = L1<E1..., E2...>;
+};
+
+template< template<typename...> class L1
+	, typename...E1
+	, template<typename...> class L2
+	, typename...E2
+	, typename...Rest
+	>
+struct append< L1<E1...>, L2<E2...>, Rest...>
+{
+	using type = typename append< L1<E1..., E2...>, Rest... >::type;
+};
+
+template< template<typename...> class
+        , typename...
+        >
+struct rewrap;
+
+template< template<typename...> class Container
+        , template<typename...> class List
+        , typename...elems
+        >
+struct rewrap<Container, List<elems...>>
+{
+    using type = TypeList< Container< elems... > >;
+};
+
+template< template<typename...> class Container
+        , template<typename...> class List
+        , class...Elems
+        , typename...Elements>
+struct rewrap<Container, List<Elems...>, Elements...>
+{
+    using type = typename append<TypeList<Container<Elems...>>, typename rewrap<Container, Elements...>::type>::type;
+};
+
+template< template<typename...> class...Containers >
+struct combine
+{
+    template< typename...Types >
+    struct with_types
+    {
+        template< template <typename...> class Final >
+        struct into
+        {
+            using type = typename append<Final<>, typename rewrap<Containers, Types...>::type...>::type;
+        };
+    };
+};
+
+// end catch_meta.hpp
 namespace Catch {
 
 template<typename C>
@@ -849,6 +922,38 @@ struct AutoReg : NonCopyable {
             return 0;\
         }();
 
+    #define INTERNAL_CATCH_TEMPLATE_PRODUCT_TEST_CASE2(TestName, TestFuncName, Name, Tags, TmplTypes, TypesList) \
+        CATCH_INTERNAL_SUPPRESS_GLOBALS_WARNINGS                      \
+        template<typename TestType> static void TestFuncName();       \
+        namespace {                                                   \
+            template<typename... Types>                               \
+            struct TestName {                                         \
+                TestName() {                                          \
+                    CATCH_INTERNAL_CHECK_UNIQUE_TYPES(Types...)       \
+                    int index = 0;                                    \
+                    using expander = int[];                           \
+                    (void)expander{(Catch::AutoReg( Catch::makeTestInvoker( &TestFuncName<Types> ), CATCH_INTERNAL_LINEINFO, Catch::StringRef(), Catch::NameAndTags{ Name " - " + Catch::StringMaker<int>::convert(index++), Tags } ), 0)... };/* NOLINT */ \
+                }                                                     \
+            };                                                        \
+            static int INTERNAL_CATCH_UNIQUE_NAME( globalRegistrar ) = [](){ \
+                using TestInit = combine<INTERNAL_CATCH_REMOVE_PARENS(TmplTypes)> \
+                            ::with_types<INTERNAL_CATCH_MAKE_TYPE_LISTS_FROM_TYPES(TypesList)>::into<TestName>::type; \
+                TestInit();                                           \
+                return 0;                                             \
+            }();                                                      \
+        }                                                             \
+        CATCH_INTERNAL_UNSUPPRESS_GLOBALS_WARNINGS                    \
+        template<typename TestType>                                   \
+        static void TestFuncName()
+
+#ifndef CATCH_CONFIG_TRADITIONAL_MSVC_PREPROCESSOR
+    #define INTERNAL_CATCH_TEMPLATE_PRODUCT_TEST_CASE(Name, Tags, ...)\
+        INTERNAL_CATCH_TEMPLATE_PRODUCT_TEST_CASE2(INTERNAL_CATCH_UNIQUE_NAME( ____C_A_T_C_H____T_E_M_P_L_A_T_E____T_E_S_T____ ), INTERNAL_CATCH_UNIQUE_NAME( ____C_A_T_C_H____T_E_M_P_L_A_T_E____T_E_S_T____F_U_N_C____ ),Name,Tags,__VA_ARGS__)
+#else
+    #define INTERNAL_CATCH_TEMPLATE_PRODUCT_TEST_CASE(Name, Tags, ...)\
+        INTERNAL_CATCH_EXPAND_VARGS( INTERNAL_CATCH_TEMPLATE_PRODUCT_TEST_CASE2( INTERNAL_CATCH_UNIQUE_NAME( ____C_A_T_C_H____T_E_M_P_L_A_T_E____T_E_S_T____ ), INTERNAL_CATCH_UNIQUE_NAME( ____C_A_T_C_H____T_E_M_P_L_A_T_E____T_E_S_T____F_U_N_C____ ), Name, Tags, __VA_ARGS__ ) )
+#endif
+
     #define INTERNAL_CATCH_TEMPLATE_TEST_CASE_METHOD_2( TestNameClass, TestName, ClassName, Name, Tags, ... ) \
         CATCH_INTERNAL_SUPPRESS_GLOBALS_WARNINGS \
         namespace{ \
@@ -877,6 +982,41 @@ struct AutoReg : NonCopyable {
 #else
     #define INTERNAL_CATCH_TEMPLATE_TEST_CASE_METHOD( ClassName, Name, Tags,... ) \
         INTERNAL_CATCH_EXPAND_VARGS( INTERNAL_CATCH_TEMPLATE_TEST_CASE_METHOD_2( INTERNAL_CATCH_UNIQUE_NAME( ____C_A_T_C_H____T_E_M_P_L_A_T_E____T_E_S_T____C_L_A_S_S____ ), INTERNAL_CATCH_UNIQUE_NAME( ____C_A_T_C_H____T_E_M_P_L_A_T_E____T_E_S_T____ ) , ClassName, Name, Tags, __VA_ARGS__ ) )
+#endif
+
+    #define INTERNAL_CATCH_TEMPLATE_PRODUCT_TEST_CASE_METHOD_2(TestNameClass, TestName, ClassName, Name, Tags, TmplTypes, TypesList)\
+        CATCH_INTERNAL_SUPPRESS_GLOBALS_WARNINGS \
+        template<typename TestType> \
+            struct TestName : INTERNAL_CATCH_REMOVE_PARENS(ClassName <TestType>) { \
+                void test();\
+            };\
+        namespace {\
+            template<typename...Types>\
+            struct TestNameClass{\
+                TestNameClass(){\
+                    CATCH_INTERNAL_CHECK_UNIQUE_TYPES(Types...)\
+                    int index = 0;\
+                    using expander = int[];\
+                    (void)expander{(Catch::AutoReg( Catch::makeTestInvoker( &TestName<Types>::test ), CATCH_INTERNAL_LINEINFO, #ClassName, Catch::NameAndTags{ Name " - " + Catch::StringMaker<int>::convert(index++), Tags } ), 0)... };/* NOLINT */ \
+                }\
+            };\
+            static int INTERNAL_CATCH_UNIQUE_NAME( globalRegistrar ) = [](){\
+                using TestInit = combine<INTERNAL_CATCH_REMOVE_PARENS(TmplTypes)>\
+                            ::with_types<INTERNAL_CATCH_MAKE_TYPE_LISTS_FROM_TYPES(TypesList)>::into<TestNameClass>::type;\
+                TestInit();\
+                return 0;\
+            }(); \
+        }\
+        CATCH_INTERNAL_UNSUPPRESS_GLOBALS_WARNINGS \
+        template<typename TestType> \
+        void TestName<TestType>::test()
+
+#ifndef CATCH_CONFIG_TRADITIONAL_MSVC_PREPROCESSOR
+    #define INTERNAL_CATCH_TEMPLATE_PRODUCT_TEST_CASE_METHOD( ClassName, Name, Tags, ... )\
+        INTERNAL_CATCH_TEMPLATE_PRODUCT_TEST_CASE_METHOD_2( INTERNAL_CATCH_UNIQUE_NAME( ____C_A_T_C_H____T_E_M_P_L_A_T_E____T_E_S_T____ ), INTERNAL_CATCH_UNIQUE_NAME( ____C_A_T_C_H____T_E_M_P_L_A_T_E____T_E_S_T____F_U_N_C____ ), ClassName, Name, Tags, __VA_ARGS__ )
+#else
+    #define INTERNAL_CATCH_TEMPLATE_PRODUCT_TEST_CASE_METHOD( ClassName, Name, Tags, ... )\
+        INTERNAL_CATCH_EXPAND_VARGS( INTERNAL_CATCH_TEMPLATE_PRODUCT_TEST_CASE_METHOD_2( INTERNAL_CATCH_UNIQUE_NAME( ____C_A_T_C_H____T_E_M_P_L_A_T_E____T_E_S_T____ ), INTERNAL_CATCH_UNIQUE_NAME( ____C_A_T_C_H____T_E_M_P_L_A_T_E____T_E_S_T____F_U_N_C____ ), ClassName, Name, Tags, __VA_ARGS__ ) )
 #endif
 
 // end catch_test_registry.h
@@ -2766,7 +2906,65 @@ using Matchers::Impl::MatcherBase;
 // end catch_matchers.h
 // start catch_matchers_floating.h
 
+// start catch_enforce.h
+
+#include <stdexcept>
+
+namespace Catch {
+#if !defined(CATCH_CONFIG_DISABLE_EXCEPTIONS)
+    template <typename Ex>
+    [[noreturn]]
+    void throw_exception(Ex const& e) {
+        throw e;
+    }
+#else // ^^ Exceptions are enabled //  Exceptions are disabled vv
+    [[noreturn]]
+    void throw_exception(std::exception const& e);
+#endif
+} // namespace Catch;
+
+#define CATCH_PREPARE_EXCEPTION( type, msg ) \
+    type( ( Catch::ReusableStringStream() << msg ).str() )
+#define CATCH_INTERNAL_ERROR( msg ) \
+    Catch::throw_exception(CATCH_PREPARE_EXCEPTION( std::logic_error, CATCH_INTERNAL_LINEINFO << ": Internal Catch error: " << msg))
+#define CATCH_ERROR( msg ) \
+    Catch::throw_exception(CATCH_PREPARE_EXCEPTION( std::domain_error, msg ))
+#define CATCH_RUNTIME_ERROR( msg ) \
+    Catch::throw_exception(CATCH_PREPARE_EXCEPTION( std::runtime_error, msg ))
+#define CATCH_ENFORCE( condition, msg ) \
+    do{ if( !(condition) ) CATCH_ERROR( msg ); } while(false)
+
+// end catch_enforce.h
+// start catch_polyfills.hpp
+
+namespace Catch {
+    bool isnan(float f);
+    bool isnan(double d);
+}
+
+// end catch_polyfills.hpp
+// start catch_to_string.hpp
+
+#include <string>
+
+namespace Catch {
+    template <typename T>
+    std::string to_string(T const& t) {
+#if defined(CATCH_CONFIG_CPP11_TO_STRING)
+        return std::to_string(t);
+#else
+        ReusableStringStream rss;
+        rss << t;
+        return rss.str();
+#endif
+    }
+} // end namespace Catch
+
+// end catch_to_string.hpp
 #include <type_traits>
+#include <cstdlib>
+#include <cstring>
+#include <cstdint>
 #include <cmath>
 
 namespace Catch {
@@ -2774,23 +2972,113 @@ namespace Matchers {
 
     namespace Floating {
 
-        enum class FloatingPointKind : uint8_t;
+        namespace {
 
-        struct WithinAbsMatcher : MatcherBase<double> {
-            WithinAbsMatcher(double target, double margin);
-            bool match(double const& matchee) const override;
-            std::string describe() const override;
-        private:
-            double m_target;
-            double m_margin;
+        template <typename T>
+        struct Converter;
+
+        template <>
+        struct Converter<float> {
+            static_assert(sizeof(float) == sizeof(int32_t), "Important ULP matcher assumption violated");
+            Converter(float f) {
+                std::memcpy(&i, &f, sizeof(f));
+            }
+            int32_t i;
         };
 
-        struct WithinUlpsMatcher : MatcherBase<double> {
-            WithinUlpsMatcher(double target, int ulps, FloatingPointKind baseType);
-            bool match(double const& matchee) const override;
-            std::string describe() const override;
+        template <>
+        struct Converter<double> {
+            static_assert(sizeof(double) == sizeof(int64_t), "Important ULP matcher assumption violated");
+            Converter(double d) {
+                std::memcpy(&i, &d, sizeof(d));
+            }
+            int64_t i;
+        };
+
+        template <typename T>
+        auto convert(T t) -> Converter<T> {
+            return Converter<T>(t);
+        }
+
+        template <typename FP>
+        bool almostEqualUlps(FP lhs, FP rhs, int maxUlpDiff) {
+            // Comparison with NaN should always be false.
+            // This way we can rule it out before getting into the ugly details
+            if (Catch::isnan(lhs) || Catch::isnan(rhs)) {
+                return false;
+            }
+
+            auto lc = convert(lhs);
+            auto rc = convert(rhs);
+
+            if ((lc.i < 0) != (rc.i < 0)) {
+                // Potentially we can have +0 and -0
+                return lhs == rhs;
+            }
+
+            auto ulpDiff = std::abs(lc.i - rc.i);
+            return ulpDiff <= maxUlpDiff;
+        }
+
+        }
+
+        enum class FloatingPointKind : uint8_t {
+            Float,
+            Double
+        };
+
+        template<class T,class M>
+        struct WithinAbsMatcher : MatcherBase<T> {
+            WithinAbsMatcher(T target, M margin)
+                :m_target{ target }, m_margin{ margin } {
+                CATCH_ENFORCE(margin >= 0, "Invalid margin: " << margin << '.'
+                    << " Margin has to be non-negative.");
+            }
+            bool match(T const& matchee) const override {
+                return (matchee + m_margin >= m_target) && (m_target + m_margin >= matchee);
+            }
+            std::string describe() const override {
+                return "is within " + ::Catch::Detail::stringify(m_margin) + " of " + ::Catch::Detail::stringify(m_target);
+            }
         private:
-            double m_target;
+            T m_target;
+            M m_margin;
+        };
+
+        template<class T>
+        struct WithinUlpsMatcher : MatcherBase<T> {
+            WithinUlpsMatcher(T target, int ulps, FloatingPointKind baseType)
+                :m_target{ target }, m_ulps{ ulps }, m_type{ baseType } {
+                CATCH_ENFORCE(ulps >= 0, "Invalid ULP setting: " << ulps << '.'
+                              << " ULPs have to be non-negative.");
+            }
+
+            #if defined(__clang__)
+            #pragma clang diagnostic push
+            // Clang <3.5 reports on the default branch in the switch below
+            #pragma clang diagnostic ignored "-Wunreachable-code"
+            #endif
+
+            bool match(T const& matchee) const override {
+                switch (m_type) {
+                case FloatingPointKind::Float:
+                    return almostEqualUlps<float>(static_cast<float>(matchee), static_cast<float>(m_target), m_ulps);
+                case FloatingPointKind::Double:
+                    return almostEqualUlps<double>(matchee, m_target, m_ulps);
+                default:
+                    CATCH_INTERNAL_ERROR( "Unknown FloatingPointKind value" );
+                }
+            }
+
+            #if defined(__clang__)
+            #pragma clang diagnostic pop
+            #endif
+
+            std::string describe() const override {
+                return "is within " + Catch::to_string(m_ulps) + " ULPs of " + ::Catch::Detail::stringify(m_target) + ((m_type == FloatingPointKind::Float)? "f" : "");
+            }
+        private:
+            T m_target;
             int m_ulps;
             FloatingPointKind m_type;
         };
@@ -2799,9 +3087,13 @@ namespace Matchers {
 
     // The following functions create the actual matcher objects.
     // This allows the types to be inferred
-    Floating::WithinUlpsMatcher WithinULP(double target, int maxUlpDiff);
-    Floating::WithinUlpsMatcher WithinULP(float target, int maxUlpDiff);
-    Floating::WithinAbsMatcher WithinAbs(double target, double margin);
+    Floating::WithinUlpsMatcher<double> WithinULP(double target, int maxUlpDiff);
+    Floating::WithinUlpsMatcher<float> WithinULP(float target, int maxUlpDiff);
+
+    template<class T,class M>
+    Floating::WithinAbsMatcher<T,M> WithinAbs(T target, M margin) {
+        return Floating::WithinAbsMatcher<T,M>(target, margin);
+    }
 
 } // namespace Matchers
 } // namespace Catch
@@ -3199,35 +3491,6 @@ namespace Catch {
 } // namespace Catch
 
 // end catch_interfaces_generatortracker.h
-// start catch_enforce.h
-
-#include <stdexcept>
-
-namespace Catch {
-#if !defined(CATCH_CONFIG_DISABLE_EXCEPTIONS)
-    template <typename Ex>
-    [[noreturn]]
-    void throw_exception(Ex const& e) {
-        throw e;
-    }
-#else // ^^ Exceptions are enabled //  Exceptions are disabled vv
-    [[noreturn]]
-    void throw_exception(std::exception const& e);
-#endif
-} // namespace Catch;
-
-#define CATCH_PREPARE_EXCEPTION( type, msg ) \
-    type( ( Catch::ReusableStringStream() << msg ).str() )
-#define CATCH_INTERNAL_ERROR( msg ) \
-    Catch::throw_exception(CATCH_PREPARE_EXCEPTION( std::logic_error, CATCH_INTERNAL_LINEINFO << ": Internal Catch error: " << msg))
-#define CATCH_ERROR( msg ) \
-    Catch::throw_exception(CATCH_PREPARE_EXCEPTION( std::domain_error, msg ))
-#define CATCH_RUNTIME_ERROR( msg ) \
-    Catch::throw_exception(CATCH_PREPARE_EXCEPTION( std::runtime_error, msg ))
-#define CATCH_ENFORCE( condition, msg ) \
-    do{ if( !(condition) ) CATCH_ERROR( msg ); } while(false)
-
-// end catch_enforce.h
 #include <memory>
 #include <vector>
 #include <cassert>
@@ -8715,159 +8978,15 @@ using Matchers::Impl::MatcherBase;
 // end catch_matchers.cpp
 // start catch_matchers_floating.cpp
 
-// start catch_polyfills.hpp
-
-namespace Catch {
-    bool isnan(float f);
-    bool isnan(double d);
-}
-
-// end catch_polyfills.hpp
-// start catch_to_string.hpp
-
-#include <string>
-
-namespace Catch {
-    template <typename T>
-    std::string to_string(T const& t) {
-#if defined(CATCH_CONFIG_CPP11_TO_STRING)
-        return std::to_string(t);
-#else
-        ReusableStringStream rss;
-        rss << t;
-        return rss.str();
-#endif
-    }
-} // end namespace Catch
-
-// end catch_to_string.hpp
-#include <cstdlib>
-#include <cstdint>
-#include <cstring>
-
 namespace Catch {
 namespace Matchers {
-namespace Floating {
-enum class FloatingPointKind : uint8_t {
-    Float,
-    Double
-};
-}
-}
+
+Floating::WithinUlpsMatcher<double> WithinULP(double target, int maxUlpDiff) {
+    return Floating::WithinUlpsMatcher<double>(target, maxUlpDiff, Floating::FloatingPointKind::Double);
 }
 
-namespace {
-
-template <typename T>
-struct Converter;
-
-template <>
-struct Converter<float> {
-    static_assert(sizeof(float) == sizeof(int32_t), "Important ULP matcher assumption violated");
-    Converter(float f) {
-        std::memcpy(&i, &f, sizeof(f));
-    }
-    int32_t i;
-};
-
-template <>
-struct Converter<double> {
-    static_assert(sizeof(double) == sizeof(int64_t), "Important ULP matcher assumption violated");
-    Converter(double d) {
-        std::memcpy(&i, &d, sizeof(d));
-    }
-    int64_t i;
-};
-
-template <typename T>
-auto convert(T t) -> Converter<T> {
-    return Converter<T>(t);
-}
-
-template <typename FP>
-bool almostEqualUlps(FP lhs, FP rhs, int maxUlpDiff) {
-    // Comparison with NaN should always be false.
-    // This way we can rule it out before getting into the ugly details
-    if (Catch::isnan(lhs) || Catch::isnan(rhs)) {
-        return false;
-    }
-
-    auto lc = convert(lhs);
-    auto rc = convert(rhs);
-
-    if ((lc.i < 0) != (rc.i < 0)) {
-        // Potentially we can have +0 and -0
-        return lhs == rhs;
-    }
-
-    auto ulpDiff = std::abs(lc.i - rc.i);
-    return ulpDiff <= maxUlpDiff;
-}
-
-}
-
-namespace Catch {
-namespace Matchers {
-namespace Floating {
-    WithinAbsMatcher::WithinAbsMatcher(double target, double margin)
-        :m_target{ target }, m_margin{ margin } {
-        CATCH_ENFORCE(margin >= 0, "Invalid margin: " << margin << '.'
-            << " Margin has to be non-negative.");
-    }
-
-    // Performs equivalent check of std::fabs(lhs - rhs) <= margin
-    // But without the subtraction to allow for INFINITY in comparison
-    bool WithinAbsMatcher::match(double const& matchee) const {
-        return (matchee + m_margin >= m_target) && (m_target + m_margin >= matchee);
-    }
-
-    std::string WithinAbsMatcher::describe() const {
-        return "is within " + ::Catch::Detail::stringify(m_margin) + " of " + ::Catch::Detail::stringify(m_target);
-    }
-
-    WithinUlpsMatcher::WithinUlpsMatcher(double target, int ulps, FloatingPointKind baseType)
-        :m_target{ target }, m_ulps{ ulps }, m_type{ baseType } {
-        CATCH_ENFORCE(ulps >= 0, "Invalid ULP setting: " << ulps << '.'
-            << " ULPs have to be non-negative.");
-    }
-
-#if defined(__clang__)
-#pragma clang diagnostic push
-// Clang <3.5 reports on the default branch in the switch below
-#pragma clang diagnostic ignored "-Wunreachable-code"
-#endif
-
-    bool WithinUlpsMatcher::match(double const& matchee) const {
-        switch (m_type) {
-        case FloatingPointKind::Float:
-            return almostEqualUlps<float>(static_cast<float>(matchee), static_cast<float>(m_target), m_ulps);
-        case FloatingPointKind::Double:
-            return almostEqualUlps<double>(matchee, m_target, m_ulps);
-        default:
-            CATCH_INTERNAL_ERROR( "Unknown FloatingPointKind value" );
-        }
-    }
-
-#if defined(__clang__)
-#pragma clang diagnostic pop
-#endif
-
-    std::string WithinUlpsMatcher::describe() const {
-        return "is within " + Catch::to_string(m_ulps) + " ULPs of " + ::Catch::Detail::stringify(m_target) + ((m_type == FloatingPointKind::Float)? "f" : "");
-    }
-
-}// namespace Floating
-
-Floating::WithinUlpsMatcher WithinULP(double target, int maxUlpDiff) {
-    return Floating::WithinUlpsMatcher(target, maxUlpDiff, Floating::FloatingPointKind::Double);
-}
-
-Floating::WithinUlpsMatcher WithinULP(float target, int maxUlpDiff) {
-    return Floating::WithinUlpsMatcher(target, maxUlpDiff, Floating::FloatingPointKind::Float);
-}
-
-Floating::WithinAbsMatcher WithinAbs(double target, double margin) {
-    return Floating::WithinAbsMatcher(target, margin);
+Floating::WithinUlpsMatcher<float> WithinULP(float target, int maxUlpDiff) {
+    return Floating::WithinUlpsMatcher<float>(target, maxUlpDiff, Floating::FloatingPointKind::Float);
 }
 
 } // namespace Matchers
@@ -14083,9 +14202,13 @@ int main (int argc, char * const argv[]) {
 #ifndef CATCH_CONFIG_TRADITIONAL_MSVC_PREPROCESSOR
 #define CATCH_TEMPLATE_TEST_CASE( ... ) INTERNAL_CATCH_TEMPLATE_TEST_CASE( __VA_ARGS__ )
 #define CATCH_TEMPLATE_TEST_CASE_METHOD( className, ... ) INTERNAL_CATCH_TEMPLATE_TEST_CASE_METHOD( className, __VA_ARGS__ )
+#define CATCH_TEMPLATE_PRODUCT_TEST_CASE( ... ) INTERNAL_CATCH_TEMPLATE_PRODUCT_TEST_CASE( __VA_ARGS__ )
+#define CATCH_TEMPLATE_PRODUCT_TEST_CASE_METHOD( className, ... ) INTERNAL_CATCH_TEMPLATE_PRODUCT_TEST_CASE_METHOD( className, __VA_ARGS__ )
 #else
 #define CATCH_TEMPLATE_TEST_CASE( ... ) INTERNAL_CATCH_EXPAND_VARGS( INTERNAL_CATCH_TEMPLATE_TEST_CASE( __VA_ARGS__ ) )
 #define CATCH_TEMPLATE_TEST_CASE_METHOD( className, ... ) INTERNAL_CATCH_EXPAND_VARGS( INTERNAL_CATCH_TEMPLATE_TEST_CASE_METHOD( className, __VA_ARGS__ ) )
+#define CATCH_TEMPLATE_PRODUCT_TEST_CASE( ... ) INTERNAL_CATCH_EXPAND_VARGS( INTERNAL_CATCH_TEMPLATE_PRODUCT_TEST_CASE( __VA_ARGS__ ) )
+#define CATCH_TEMPLATE_PRODUCT_TEST_CASE_METHOD( className, ... ) INTERNAL_CATCH_EXPAND_VARGS( INTERNAL_CATCH_TEMPLATE_PRODUCT_TEST_CASE_METHOD( className, __VA_ARGS__ ) )
 #endif
 
 #if !defined(CATCH_CONFIG_RUNTIME_STATIC_REQUIRE)
@@ -14158,9 +14281,13 @@ int main (int argc, char * const argv[]) {
 #ifndef CATCH_CONFIG_TRADITIONAL_MSVC_PREPROCESSOR
 #define TEMPLATE_TEST_CASE( ... ) INTERNAL_CATCH_TEMPLATE_TEST_CASE( __VA_ARGS__ )
 #define TEMPLATE_TEST_CASE_METHOD( className, ... ) INTERNAL_CATCH_TEMPLATE_TEST_CASE_METHOD( className, __VA_ARGS__ )
+#define TEMPLATE_PRODUCT_TEST_CASE( ... ) INTERNAL_CATCH_TEMPLATE_PRODUCT_TEST_CASE( __VA_ARGS__ )
+#define TEMPLATE_PRODUCT_TEST_CASE_METHOD( className, ... ) INTERNAL_CATCH_TEMPLATE_PRODUCT_TEST_CASE_METHOD( className, __VA_ARGS__ )
 #else
 #define TEMPLATE_TEST_CASE( ... ) INTERNAL_CATCH_EXPAND_VARGS( INTERNAL_CATCH_TEMPLATE_TEST_CASE( __VA_ARGS__ ) )
 #define TEMPLATE_TEST_CASE_METHOD( className, ... ) INTERNAL_CATCH_EXPAND_VARGS( INTERNAL_CATCH_TEMPLATE_TEST_CASE_METHOD( className, __VA_ARGS__ ) )
+#define TEMPLATE_PRODUCT_TEST_CASE( ... ) INTERNAL_CATCH_EXPAND_VARGS( INTERNAL_CATCH_TEMPLATE_PRODUCT_TEST_CASE( __VA_ARGS__ ) )
+#define TEMPLATE_PRODUCT_TEST_CASE_METHOD( className, ... ) INTERNAL_CATCH_EXPAND_VARGS( INTERNAL_CATCH_TEMPLATE_PRODUCT_TEST_CASE_METHOD( className, __VA_ARGS__ ) )
 #endif
 
 #if !defined(CATCH_CONFIG_RUNTIME_STATIC_REQUIRE)
@@ -14244,9 +14371,13 @@ using Catch::Detail::Approx;
 #ifndef CATCH_CONFIG_TRADITIONAL_MSVC_PREPROCESSOR
 #define CATCH_TEMPLATE_TEST_CASE( ... ) INTERNAL_CATCH_TEMPLATE_TEST_CASE_NO_REGISTRATION(INTERNAL_CATCH_UNIQUE_NAME( ____C_A_T_C_H____T_E_M_P_L_A_T_E____T_E_S_T____ ) )
 #define CATCH_TEMPLATE_TEST_CASE_METHOD( className, ... ) INTERNAL_CATCH_TEMPLATE_TEST_CASE_METHOD_NO_REGISTRATION(INTERNAL_CATCH_UNIQUE_NAME( ____C_A_T_C_H____T_E_M_P_L_A_T_E____T_E_S_T____ ), className )
+#define CATCH_TEMPLATE_PRODUCT_TEST_CASE( ... ) CATCH_TEMPLATE_TEST_CASE( __VA_ARGS__ )
+#define CATCH_TEMPLATE_PRODUCT_TEST_CASE_METHOD( className, ... ) CATCH_TEMPLATE_TEST_CASE_METHOD( className, __VA_ARGS__ )
 #else
 #define CATCH_TEMPLATE_TEST_CASE( ... ) INTERNAL_CATCH_EXPAND_VARGS( INTERNAL_CATCH_TEMPLATE_TEST_CASE_NO_REGISTRATION(INTERNAL_CATCH_UNIQUE_NAME( ____C_A_T_C_H____T_E_M_P_L_A_T_E____T_E_S_T____ ) ) )
 #define CATCH_TEMPLATE_TEST_CASE_METHOD( className, ... ) INTERNAL_CATCH_EXPAND_VARGS( INTERNAL_CATCH_TEMPLATE_TEST_CASE_METHOD_NO_REGISTRATION(INTERNAL_CATCH_UNIQUE_NAME( ____C_A_T_C_H____T_E_M_P_L_A_T_E____T_E_S_T____ ), className ) )
+#define CATCH_TEMPLATE_PRODUCT_TEST_CASE( ... ) CATCH_TEMPLATE_TEST_CASE( __VA_ARGS__ )
+#define CATCH_TEMPLATE_PRODUCT_TEST_CASE_METHOD( className, ... ) CATCH_TEMPLATE_TEST_CASE_METHOD( className, __VA_ARGS__ )
 #endif
 
 // "BDD-style" convenience wrappers
@@ -14314,9 +14445,13 @@ using Catch::Detail::Approx;
 #ifndef CATCH_CONFIG_TRADITIONAL_MSVC_PREPROCESSOR
 #define TEMPLATE_TEST_CASE( ... ) INTERNAL_CATCH_TEMPLATE_TEST_CASE_NO_REGISTRATION(INTERNAL_CATCH_UNIQUE_NAME( ____C_A_T_C_H____T_E_M_P_L_A_T_E____T_E_S_T____ ) )
 #define TEMPLATE_TEST_CASE_METHOD( className, ... ) INTERNAL_CATCH_TEMPLATE_TEST_CASE_METHOD_NO_REGISTRATION(INTERNAL_CATCH_UNIQUE_NAME( ____C_A_T_C_H____T_E_M_P_L_A_T_E____T_E_S_T____ ), className )
+#define TEMPLATE_PRODUCT_TEST_CASE( ... ) TEMPLATE_TEST_CASE( __VA_ARGS__ )
+#define TEMPLATE_PRODUCT_TEST_CASE_METHOD( className, ... ) TEMPLATE_TEST_CASE_METHOD( className, __VA_ARGS__ )
 #else
 #define TEMPLATE_TEST_CASE( ... ) INTERNAL_CATCH_EXPAND_VARGS( INTERNAL_CATCH_TEMPLATE_TEST_CASE_NO_REGISTRATION(INTERNAL_CATCH_UNIQUE_NAME( ____C_A_T_C_H____T_E_M_P_L_A_T_E____T_E_S_T____ ) ) )
 #define TEMPLATE_TEST_CASE_METHOD( className, ... ) INTERNAL_CATCH_EXPAND_VARGS( INTERNAL_CATCH_TEMPLATE_TEST_CASE_METHOD_NO_REGISTRATION(INTERNAL_CATCH_UNIQUE_NAME( ____C_A_T_C_H____T_E_M_P_L_A_T_E____T_E_S_T____ ), className ) )
+#define TEMPLATE_PRODUCT_TEST_CASE( ... ) TEMPLATE_TEST_CASE( __VA_ARGS__ )
+#define TEMPLATE_PRODUCT_TEST_CASE_METHOD( className, ... ) TEMPLATE_TEST_CASE_METHOD( className, __VA_ARGS__ )
 #endif
 
 #define STATIC_REQUIRE( ... )       (void)(0)
